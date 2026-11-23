@@ -19,7 +19,7 @@ jobs:
 
       - name: Clone WSL2 Linux Kernel
         run: |
-          git clone --depth=1 https://github.com/microsoft/wsl2-linux-kernel
+          git clone --depth=1 https://github.com/microsoft/WSL2-linux-kernel
 
       - name: Configure kernel (Android Binder + ALSA Sound)
         working-directory: WSL2-Linux-Kernel
