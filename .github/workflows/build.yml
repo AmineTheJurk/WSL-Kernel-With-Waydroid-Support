@@ -1,0 +1,63 @@
+name: Build WSL2 Kernel with Waydroid & Sound
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential flex bison dwarves libssl-dev libelf-dev cpio qemu-utils rsync bc python3
+
+      - name: Clone WSL2 Linux Kernel
+        run: |
+          git clone --depth=1 https://github.com
+
+      - name: Configure kernel (Android Binder + ALSA Sound)
+        working-directory: WSL2-Linux-Kernel
+        run: |
+          cp Microsoft/config-wsl .config
+
+          # Enable Android Binder & PSI for Waydroid
+          ./scripts/config --enable CONFIG_PSI
+          ./scripts/config --disable CONFIG_PSI_DEFAULT_DISABLED
+          ./scripts/config --enable CONFIG_ANDROID
+          ./scripts/config --enable CONFIG_ANDROID_BINDER_IPC
+          ./scripts/config --enable CONFIG_ANDROID_BINDERFS
+          ./scripts/config --set-str CONFIG_ANDROID_BINDER_DEVICES "binder,hwbinder,vndbinder"
+
+          # Enable ALSA Sound Drivers (virtual, loopback, and USB audio)
+          ./scripts/config --enable CONFIG_SOUND
+          ./scripts/config --enable CONFIG_SND
+          ./scripts/config --module CONFIG_SND_DUMMY
+          ./scripts/config --module CONFIG_SND_ALOOP
+          ./scripts/config --module CONFIG_SND_VIRMIDI
+          ./scripts/config --module CONFIG_SND_USB_AUDIO
+
+          make olddefconfig
+
+      - name: Build kernel, modules, and VHDX
+        working-directory: WSL2-Linux-Kernel
+        run: |
+          make -j$(nproc)
+          make INSTALL_MOD_PATH="$PWD/modules" modules_install
+          make headers_install INSTALL_HDR_PATH="$PWD/headers"
+          make -C tools/perf NO_JEVENTS=1 NO_JVMTI=1 NO_LIBTRACEEVENT=1 install DESTDIR="$PWD/perf" prefix=/
+          chmod +x ./Microsoft/scripts/gen_artifacts_vhdx.sh
+          ./Microsoft/scripts/gen_artifacts_vhdx.sh "$PWD/modules" "$PWD/headers" "$PWD/perf" $(make -s kernelrelease) modules.vhdx
+
+      - name: Upload kernel and modules artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsl2-waydroid-kernel
+          path: |
+            WSL2-Linux-Kernel/arch/x86/boot/bzImage
+            WSL2-Linux-Kernel/modules.vhdx
